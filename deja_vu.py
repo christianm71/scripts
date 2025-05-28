@@ -28,9 +28,7 @@ logger = logging.getLogger()
 
 
 # =========================================================================================
-def parse_directory(path, **kwargs):
-    global all_files
-
+def parse_directory(path, all_files_dict, **kwargs):
     include_hidden_files = kwargs.get("include_hidden_files", False)
     allow_file_ext = kwargs.get("allow_file_ext", [])
     deny_file_ext = kwargs.get("deny_file_ext", [])
@@ -41,10 +39,11 @@ def parse_directory(path, **kwargs):
 
     for entry in os.scandir(path):
         if entry.is_file():
-            if include_hidden_files and re.match(r"\.", entry.name):
+            if not include_hidden_files and entry.name.startswith('.'):
                 continue
 
-            file_extention = entry.name.split(".")[-1]
+            file_name_without_ext, file_extention_with_dot = os.path.splitext(entry.name)
+            file_extention = file_extention_with_dot.lstrip('.')
 
             if allow_file_ext and file_extention not in allow_file_ext:
                 continue
@@ -56,10 +55,10 @@ def parse_directory(path, **kwargs):
             st_ino = entry.stat(follow_symlinks=False).st_ino
             st_dev = entry.stat(follow_symlinks=False).st_dev
 
-            if not all_files.get(st_size):
-                all_files[st_size] = {}
+            if not all_files_dict.get(st_size):
+                all_files_dict[st_size] = {}
 
-            all_files[st_size][entry.path] = {
+            all_files_dict[st_size][entry.path] = {
                 "st_ino": st_ino,
                 "st_dev": st_dev,
                 "safe": False,
@@ -68,12 +67,7 @@ def parse_directory(path, **kwargs):
             }
 
         elif entry.is_dir():
-            parse_directory(
-                entry.path,
-                include_hidden_files=include_hidden_files,
-                allow_file_ext=allow_file_ext,
-                deny_file_ext=deny_file_ext,
-            )
+            parse_directory(entry.path, all_files_dict, **kwargs)
 
 
 # =========================================================================================
@@ -81,6 +75,7 @@ for dir_path in args.dirs:
     logger.info(f"parsing directory {dir_path}")
     parse_directory(
         dir_path,
+        all_files,
         include_hidden_files=args.include_hidden_files,
         allow_file_ext=args.allow_file_ext,
         deny_file_ext=args.deny_file_ext,
