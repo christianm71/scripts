@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import argparse
 import filecmp
 import logging
@@ -15,6 +17,7 @@ parser.add_argument("--rm", action="store_true", default=False,
 parser.add_argument("--include_hidden_files", action="store_true", default=False,
                     help="Include hidden files (those starting with '.')")
 parser.add_argument("--rm_regex", help="The regular expression to select the file to remove")
+parser.add_argument("--debug", help="Debug mode", action="store_true", default=False)
 
 args = parser.parse_args()
 
@@ -63,8 +66,7 @@ def parse_directory(path, all_files_dict, **kwargs):
                     "path": entry.path,
                     "st_ino": st_ino,
                     "st_dev": st_dev,
-                    "safe": False,
-                    "to_delete": False,
+                    "status": 0,
                 }
             )
 
@@ -73,6 +75,9 @@ def parse_directory(path, all_files_dict, **kwargs):
 
 
 # =========================================================================================
+SAFE = 1
+TO_DELETE = 2
+
 for dir_path in args.dirs:
     logger.info(f"parsing directory {dir_path}")
     parse_directory(
@@ -83,58 +88,78 @@ for dir_path in args.dirs:
         deny_file_ext=args.deny_file_ext,
     )
 
-for file_size in all_files:
-    paths_same_size_list = all_files[file_size]
+if not args.debug:
+    logging.disable(logging.CRITICAL)
 
-    if len(paths_same_size_list) == 1:
+for file_size in all_files:
+    items_list = all_files[file_size]
+
+    n = len(items_list)
+
+    if n == 1:
         continue
 
-    for i1 in range(len(paths_same_size_list)):
-        path1_dict = paths_same_size_list[i1]
+    for i in range(0, n - 1, 1):
+        for j in range(i + 1, n, 1):
+            status1 = items_list[i]["status"]
+            status2 = items_list[j]["status"]
 
-        if path1_dict["to_delete"]:
-            continue
+            path1 = items_list[i]["path"]
+            path2 = items_list[j]["path"]
 
-        for i2 in range(i1 + 1, len(paths_same_size_list), 1):
-            path2_dict = paths_same_size_list[i2]
-
-            if path2_dict["to_delete"]:
+            if status1 == SAFE and status2 == SAFE:
+                logger.info(f"'{path1}' '{path2}' are both SAFE")
                 continue
 
-            if path1_dict["safe"] and path2_dict["safe"]:
+            if items_list[i]["st_ino"] == items_list[j]["st_ino"] and \
+               items_list[i]["st_dev"] == items_list[j]["st_dev"]:
+                logger.info(f"'{path1}' '{path2}' are same files")
                 continue
 
-            if path1_dict["st_ino"] == path2_dict["st_ino"] and \
-                   path1_dict["st_dev"] == path2_dict["st_dev"]:
-                continue
-
-            if not filecmp.cmp(path1_dict["path"], path2_dict["path"], False):
+            if not filecmp.cmp(path1, path2, False):
+                logger.info(f"'{path1}' '{path2}' are different")
                 continue
 
             if not args.rm:
-                print(f"sum \"{path1_dict['path']}\" \"{path2_dict['path']}\"")
+                print(f"sum '{path1}' '{path2}'")
             else:
-                file_to_rm_dict = None
+                to_delete = None
 
-                if path1_dict["safe"]:
-                    file_to_rm_dict = path2_dict
-                elif path2_dict["safe"]:
-                    file_to_rm_dict = path1_dict
+                if status1 == 0 and status2 in [SAFE, TO_DELETE]:
+                    if status2 == SAFE:
+                        logger.info(f"'{path1}' will be deleted, '{path2}' is SAFE")
+                    else:
+                        logger.info(f"'{path1}' will be deleted, '{path2}' is TO_DELETE")
+                    to_delete = i
+
+                elif status2 == 0 and status1 in [SAFE, TO_DELETE]:
+                    if status1 == SAFE:
+                        logger.info(f"'{path2}' will be deleted, '{path1}' is SAFE")
+                    else:
+                        logger.info(f"'{path2}' will be deleted, '{path1}' is TO_DELETE")
+                    to_delete = j
+
                 elif args.rm_regex:
-                    if re.search(r"%s" % args.rm_regex, path1_dict["path"]):
-                        file_to_rm_dict = path1_dict
-                    elif re.search(r"%s" % args.rm_regex, path2_dict["path"]):
-                        file_to_rm_dict = path2_dict
+                    if re.search(r"%s" % args.rm_regex, path1):
+                        logger.info(f"'{path1}' will be deleted (match the regex), '{path2}' will be SAFE")
+                        to_delete = i
+                    elif re.search(r"%s" % args.rm_regex, path2):
+                        logger.info(f"'{path2}' will be deleted (match the regex), '{path1}' will be SAFE")
+                        to_delete = j
 
-                if not file_to_rm_dict:
-                    file_to_rm_dict = path2_dict
-                file_to_safe_dict = path1_dict if file_to_rm_dict == path2_dict else path2_dict
+                else:
+                    to_delete = j
 
-                file_to_rm_dict["to_delete"] = True
-                file_to_safe_dict["safe"] = True
+                if to_delete is None:
+                    continue
 
-                print(f"rm \"{file_to_rm_dict['path']}\"")
-                print(f"   # safe \"{file_to_safe_dict['path']}\"")
+                to_safe = i if to_delete == j else j
 
-                if path1_dict == file_to_rm_dict:
-                    break
+                path_to_delete = items_list[to_delete]["path"]
+                path_to_safe = items_list[to_safe]["path"]
+
+                print(f"rm '{path_to_delete}'")
+                print(f"   # safe '{path_to_safe}'")
+
+                items_list[to_delete]["status"] == TO_DELETE
+                items_list[to_safe]["status"] == SAFE
