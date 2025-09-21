@@ -5,6 +5,7 @@ import filecmp
 import logging
 import os
 import re
+import sys
 
 # =========================================================================================
 parser = argparse.ArgumentParser(description="Identify identical files")
@@ -17,6 +18,7 @@ parser.add_argument("--rm", action="store_true", default=False,
 parser.add_argument("--include_hidden_files", action="store_true", default=False,
                     help="Include hidden files (those starting with '.')")
 parser.add_argument("--rm_regex", help="The regular expression to select the file to remove")
+parser.add_argument("--max", help="The maximum feedback", type=int)
 parser.add_argument("--debug", help="Debug mode", action="store_true", default=False)
 
 args = parser.parse_args()
@@ -91,6 +93,8 @@ for dir_path in args.dirs:
 if not args.debug:
     logging.disable(logging.CRITICAL)
 
+count = 0
+
 for file_size in all_files:
     items_list = all_files[file_size]
 
@@ -122,6 +126,9 @@ for file_size in all_files:
 
             if not args.rm:
                 print(f"sum '{path1}' '{path2}'")
+                count += 1
+                if args.max and count >= args.max:
+                    sys.exit(0)
             else:
                 to_delete = None
 
