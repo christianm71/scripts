@@ -27,6 +27,9 @@ video_file = f"video_{name}.mp4"
 audio_file = f"audio_{name}.mp4"
 final_file = f"{name}.mp4"
 
+while os.path.exists(final_file):
+    final_file = re.sub(r"(\.mp4)$", r"_\1", final_file)
+
 video_stream.download(filename=video_file)
 audio_stream.download(filename=audio_file)
 
